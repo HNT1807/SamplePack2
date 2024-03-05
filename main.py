@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import re
 
-
 def process_entry(entry):
     parts = entry.split('(')
     if len(parts) > 1:
@@ -17,7 +16,6 @@ def process_entry(entry):
             ipi = ipi_match.group(1) if ipi_match else ""
             return name, pro, percentage, ipi
     return None, None, 0, ""
-
 
 def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, engine='openpyxl', header=None)
@@ -36,18 +34,16 @@ def process_file(uploaded_file):
             for entry in composer_entries:
                 name, pro, percentage, ipi = process_entry(entry)
                 if name:
-                    if name not in composers:
-                        composers[name] = {'pro': pro, 'ipi': ipi, 'points': 0}
-                    composers[name]['points'] += percentage  # Aggregate points by composer
+                    composers[name] = composers.get(name, {'pro': pro, 'ipi': ipi, 'points': 0})
+                    composers[name]['points'] += percentage
 
             # Process publishers
             publisher_entries = str(row[26]).split(',')
             for entry in publisher_entries:
                 name, pro, percentage, ipi = process_entry(entry)
                 if name:
-                    if name not in publishers:
-                        publishers[name] = {'pro': pro, 'ipi': ipi, 'points': 0}
-                    publishers[name]['points'] += percentage  # Aggregate points by publisher
+                    publishers[name] = publishers.get(name, {'pro': pro, 'ipi': ipi, 'points': 0})
+                    publishers[name]['points'] += percentage
 
         total_points_possible = num_tracks * 100
         for composer in composers:
@@ -60,8 +56,10 @@ def process_file(uploaded_file):
     else:
         return None, None, 0, 0
 
+def format_percentage(percentage):
+    return f"{percentage:.2f}".rstrip('0').rstrip('.') + '%' if percentage != 0 else "0%"
 
-st.title('Composer and Publisher Contribution Analyzer')
+st.title('Composer Contribution Analyzer')
 
 uploaded_file = st.file_uploader("Choose an Excel file", type=['xlsx'])
 if uploaded_file is not None:
@@ -69,22 +67,24 @@ if uploaded_file is not None:
     if composers and publishers:
         # Display Composers
         sorted_composers = sorted(composers.items(), key=lambda x: x[1]['points'], reverse=True)
-        formatted_composers = ", ".join(
-            [f"{name} ({info['pro']}) {info['percentage']:.2f}% [{info['ipi']}]" for name, info in sorted_composers])
+        formatted_composers = ", ".join([f"{name} ({info['pro']}) {format_percentage(info['percentage'])} [{info['ipi']}]" for name, info in sorted_composers])
         st.write(f"Composers: {formatted_composers}")
+
+        # Display Publishers
+        sorted_publishers = sorted(publishers.items(), key=lambda x: x[1]['percentage'], reverse=True)
+        formatted_publishers = ", ".join(
+            [f"{name} ({info['pro']}) {format_percentage(info['percentage'])} [{info['ipi']}]" for name, info in
+             sorted_publishers])
+        st.write(f"Publishers: {formatted_publishers}")
 
         # Album Info
         st.write(f"The album has {num_tracks} tracks ({total_points_possible} points)")
 
         # Composer Points
-        st.write("Composer Points:")
+
         for composer, info in sorted_composers:
             st.write(f"{composer}: {info['points']} points")
 
-        # Display Publishers
-        sorted_publishers = sorted(publishers.items(), key=lambda x: x[1]['percentage'], reverse=True)
-        formatted_publishers = ", ".join(
-            [f"{name} ({info['pro']}) {info['percentage']:.2f}% [{info['ipi']}]" for name, info in sorted_publishers])
-        st.write(f"Publishers: {formatted_publishers}")
+
     else:
         st.write("Invalid file or file format")
