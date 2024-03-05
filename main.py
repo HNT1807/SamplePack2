@@ -2,57 +2,45 @@ import streamlit as st
 import pandas as pd
 import re
 
-def process_entry(entry):
-    parts = entry.split('(')
-    if len(parts) > 1:
-        name = parts[0].strip()
-        rest = parts[1].split(')')
-        if len(rest) > 1:
-            pro = rest[0].strip()
-            percent_part = rest[1].strip()
-            percentage_match = re.search(r'\d+', percent_part)
-            ipi_match = re.search(r'\[(.*?)\]', percent_part)
-            percentage = int(percentage_match.group()) if percentage_match else 0
-            ipi = ipi_match.group(1) if ipi_match else ""
-            return name, pro, percentage, ipi
-    return None, None, 0, ""
-
 def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, engine='openpyxl', header=None)
 
-    composers = {}
-    publishers = {}
-    num_tracks = 0
-
-    if 18 in df.columns and 22 in df.columns and 26 in df.columns:
+    if 18 in df.columns and 22 in df.columns:
         df_full_tracks = df[df[18].astype(str).str.contains('Full', na=False)]
+        composers = {}
+        pro_requirements = {}
         num_tracks = len(df_full_tracks)
 
         for _, row in df_full_tracks.iterrows():
-            # Process composers
-            composer_entries = str(row[22]).split(',')
-            for entry in composer_entries:
-                name, pro, percentage, ipi = process_entry(entry)
-                if name:
-                    composers[name] = composers.get(name, {'pro': pro, 'ipi': ipi, 'points': 0})
-                    composers[name]['points'] += percentage
+            composer_data = str(row[22]).split(',')
+            for composer_entry in composer_data:
+                parts = composer_entry.split('(')
+                if len(parts) > 1:
+                    name = parts[0].strip()
+                    pro_and_percent = parts[1].split(')')
+                    if len(pro_and_percent) > 1:
+                        pro = pro_and_percent[0].strip()
+                        ipi_match = re.search(r'\[(.*?)\]', composer_entry)
+                        ipi = ipi_match.group(1) if ipi_match else ""
+                        percentage_match = re.search(r'\d+', pro_and_percent[1])
+                        if percentage_match:
+                            percentage = int(percentage_match.group())
+                            points = percentage
+                            composers[name] = {
+                                'points': composers.get(name, {}).get('points', 0) + points,
+                                'pro': pro,
+                                'ipi': ipi
+                            }
+                            pro_requirements[pro] = pro_requirements.get(pro, 0) + points
 
-            # Process publishers
-            publisher_entries = str(row[26]).split(',')
-            for entry in publisher_entries:
-                name, pro, percentage, ipi = process_entry(entry)
-                if name:
-                    publishers[name] = publishers.get(name, {'pro': pro, 'ipi': ipi, 'points': 0})
-                    publishers[name]['points'] += percentage
-
-        total_points_possible = num_tracks * 100
+        total_points = sum(composer['points'] for composer in composers.values())
+        max_possible_points = num_tracks * 100
         for composer in composers:
-            composers[composer]['percentage'] = (composers[composer]['points'] / total_points_possible) * 100
+            composers[composer]['percentage'] = 100 * composers[composer]['points'] / max_possible_points if max_possible_points > 0 else 0
+        for pro in pro_requirements:
+            pro_requirements[pro] = 100 * pro_requirements[pro] / max_possible_points if max_possible_points > 0 else 0
 
-        for publisher in publishers:
-            publishers[publisher]['percentage'] = (publishers[publisher]['points'] / total_points_possible) * 100
-
-        return composers, publishers, num_tracks, total_points_possible
+        return composers, pro_requirements, num_tracks, max_possible_points
     else:
         return None, None, 0, 0
 
@@ -63,28 +51,24 @@ st.title('Composer Contribution Analyzer')
 
 uploaded_file = st.file_uploader("Choose an Excel file", type=['xlsx'])
 if uploaded_file is not None:
-    composers, publishers, num_tracks, total_points_possible = process_file(uploaded_file)
-    if composers and publishers:
+    composers, pro_requirements, num_tracks, max_possible_points = process_file(uploaded_file)
+    if composers:
         # Display Composers
-        sorted_composers = sorted(composers.items(), key=lambda x: x[1]['points'], reverse=True)
-        formatted_composers = ", ".join([f"{name} ({info['pro']}) {format_percentage(info['percentage'])} [{info['ipi']}]" for name, info in sorted_composers])
+        sorted_composers = sorted(composers.items(), key=lambda x: x[1]['percentage'], reverse=True)
+        formatted_composers = ", ".join(
+            [f"{name} ({data['pro']}) {format_percentage(data['percentage'])} [{data['ipi']}]" for name, data in sorted_composers])
         st.write(f"Composers: {formatted_composers}")
 
-        # Display Publishers
-        sorted_publishers = sorted(publishers.items(), key=lambda x: x[1]['percentage'], reverse=True)
-        formatted_publishers = ", ".join(
-            [f"{name} ({info['pro']}) {format_percentage(info['percentage'])} [{info['ipi']}]" for name, info in
-             sorted_publishers])
-        st.write(f"Publishers: {formatted_publishers}")
+        # Displaying PRO Requirements
+        formatted_pro_requirements = ", ".join([f"{pro}: {format_percentage(percentage)}" for pro, percentage in pro_requirements.items()])
+        st.write(f"PRO Requirements: {formatted_pro_requirements}")
 
         # Album Info
-        st.write(f"The album has {num_tracks} tracks ({total_points_possible} points)")
+        st.write(f"The album has {num_tracks} tracks ({max_possible_points} points)")
 
         # Composer Points
-
-        for composer, info in sorted_composers:
-            st.write(f"{composer}: {info['points']} points")
-
+        for composer, data in sorted_composers:
+            st.write(f"{composer}: {data['points']} points ({format_percentage(data['percentage'])})")
 
     else:
         st.write("Invalid file or file format")
